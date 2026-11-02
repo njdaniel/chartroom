@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 )
 
 var (
@@ -65,6 +67,11 @@ func (r *Registry) Register(typ string, latest int, upcasters map[int]Upcaster) 
 }
 
 // latest returns the current data version of typ.
+// Types returns the registered event types, sorted.
+func (r *Registry) Types() []string {
+	return slices.Sorted(maps.Keys(r.types))
+}
+
 func (r *Registry) latest(typ string) (int, error) {
 	info, ok := r.types[typ]
 	if !ok {

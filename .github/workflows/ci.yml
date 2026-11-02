@@ -33,6 +33,8 @@ jobs:
         run: make build
       - name: Embedded client test
         run: go test -tags chartroomweb ./internal/webclient
+      - name: Generated protocol types are current
+        run: make gen && git diff --exit-code web/src/protocol.gen.ts
 
   web:
     runs-on: ubuntu-latest

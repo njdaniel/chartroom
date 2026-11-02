@@ -51,8 +51,8 @@ type Event struct {
 	ID      string          `json:"id"`
 	Session string          `json:"session"`
 	Seq     int64           `json:"seq"`
-	At      time.Time       `json:"at"` // display and audit only; never read by a fold
-	Seat    SeatID          `json:"seat"`
+	At      time.Time       `json:"at"`                      // display and audit only; never read by a fold
+	Seat    SeatID          `json:"seat" ts:"SeatID | null"` // null for system events
 	Cause   string          `json:"cause,omitempty"`
 	Type    string          `json:"type"`
 	DataV   int             `json:"data_v"`
