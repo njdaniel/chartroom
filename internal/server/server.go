@@ -1,6 +1,5 @@
 // Package server holds chartroomd's HTTP routes: the lobby API, map and
-// token image assets, and the browser client. The WebSocket handler is added
-// in #7.
+// token image assets, the browser client, and the WebSocket at /ws.
 package server
 
 import (
@@ -10,10 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/njdaniel/chartroom/internal/eventlog"
 	"github.com/njdaniel/chartroom/internal/session"
 	"github.com/njdaniel/chartroom/internal/table"
+	"github.com/njdaniel/chartroom/internal/visibility"
 )
 
 // Config is what the server needs.
@@ -22,17 +23,40 @@ type Config struct {
 	Sessions  *session.Manager
 	AssetsDir string // where uploaded images are stored, one file per sha256
 	Client    fs.FS  // the built browser client, or nil if none is embedded
+
+	// Filter is what each seat may see. Nil means visibility.M0. Tests swap
+	// it to check that nothing reaches a client without passing through it.
+	Filter visibility.Filter
+	// PingInterval is how often /ws pings; a client that misses two pings
+	// is dropped. Zero means DefaultPingInterval.
+	PingInterval time.Duration
+	// SendQueue is how many frames may wait for a client before it is
+	// dropped as stuck. Zero means DefaultSendQueue.
+	SendQueue int
 }
 
 type server struct {
 	Config
+	filter       visibility.Filter
+	pingInterval time.Duration
+	sendQueue    int
 }
 
 // New returns the HTTP handler for chartroomd.
 func New(cfg Config) http.Handler {
-	s := &server{Config: cfg}
+	s := &server{Config: cfg, filter: cfg.Filter, pingInterval: cfg.PingInterval, sendQueue: cfg.SendQueue}
+	if s.filter == nil {
+		s.filter = visibility.M0{}
+	}
+	if s.pingInterval == 0 {
+		s.pingInterval = DefaultPingInterval
+	}
+	if s.sendQueue == 0 {
+		s.sendQueue = DefaultSendQueue
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth)
+	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
 	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("GET /api/", http.NotFound) // unknown API paths are not the client
