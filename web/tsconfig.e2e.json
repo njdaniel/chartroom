@@ -1,0 +1,10 @@
+{
+  // Typechecks ../e2e and the Playwright config. Separate from the client so
+  // e2e/node.d.ts (a few Node APIs) does not leak into browser code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "paths": { "@playwright/test": ["./node_modules/@playwright/test"] }
+  },
+  "include": ["../e2e", "playwright.config.ts"]
+}

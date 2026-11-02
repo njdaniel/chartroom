@@ -3,7 +3,7 @@
 // itself moves only when its token.moved event arrives (ADR-003).
 
 import { Application, Container, Graphics, Sprite, Text, Texture, type FederatedPointerEvent } from "pixi.js";
-import { fit, pan, toWorld, zoomAt, type Camera, type Point } from "./camera";
+import { fit, pan, toScreen, toWorld, zoomAt, type Camera, type Point } from "./camera";
 import type { Outcome } from "./connection";
 import type { Grid, MapLoaded, Pose, State, Token } from "./protocol";
 import { distanceIn, formatInches } from "./ruler";
@@ -97,6 +97,13 @@ export class TableView {
   setSelected(tokenId: string | null): void {
     this.selected = tokenId;
     if (this.state) this.drawTokens(this.state.tokens);
+  }
+
+  /** Where a world point is on the page, in CSS pixels. */
+  toPage(p: Point): Point {
+    const rect = this.app.canvas.getBoundingClientRect();
+    const s = toScreen(this.camera, p);
+    return { x: rect.left + s.x, y: rect.top + s.y };
   }
 
   /** The world point at the middle of the view, where new tokens go. */

@@ -4,7 +4,7 @@
 import { Connection, type KeyValue, type Status } from "./connection";
 import { h, nameKey, storage } from "./dom";
 import { Panel } from "./panel";
-import type { IntentData } from "./protocol";
+import type { IntentData, Seat, State } from "./protocol";
 import { TableView } from "./table";
 
 export async function showTable(root: HTMLElement, session: string): Promise<void> {
@@ -84,6 +84,22 @@ export async function showTable(root: HTMLElement, session: string): Promise<voi
     },
   });
   conn.start();
+
+  // A read-only handle for the end-to-end tests (e2e/), and for poking at
+  // the table from the browser console. It exposes nothing the page does
+  // not already have.
+  (window as unknown as { chartroom: ChartroomHandle }).chartroom = {
+    state: () => conn.state,
+    seat: () => conn.seat,
+    toPage: (x, y) => view.toPage({ x, y }),
+  };
+}
+
+/** window.chartroom: see showTable. */
+export interface ChartroomHandle {
+  state(): State | null;
+  seat(): Seat | null;
+  toPage(x: number, y: number): { x: number; y: number };
 }
 
 function statusText(s: Status): string {

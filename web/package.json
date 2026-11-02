@@ -10,11 +10,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json",
+    "lint": "eslint --max-warnings 0 . && cd ../e2e && eslint --max-warnings 0 --config ../web/eslint.config.js .",
+    "test": "vitest run",
+    "e2e": "NODE_PATH=\"$PWD/node_modules\" playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "eslint": "10.14.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",

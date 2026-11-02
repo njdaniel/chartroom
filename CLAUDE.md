@@ -51,6 +51,7 @@ Layout and dependencies are in `docs/adr/0001-repo-layout-and-dependencies.md`. 
 - `make build`: builds the client and embeds it in `bin/chartroomd` (build tag `chartroomweb`). A plain `go build` has no client, so Go work never needs Node.
 - `make gen`: regenerates `web/src/protocol.gen.ts` from `internal/protocol`. Run it after changing any wire type; a test fails if the file is stale. Never edit the generated file.
 - `make test`: `go test -race ./...` and the client's Vitest tests.
+- `make e2e`: the M0 gate in `e2e/`. Builds the binary, then Playwright drives two browsers against a real `chartroomd`, including a crash and restart. Run `cd web && npx playwright install chromium` once first.
 - `make lint`: gofmt, `go vet`, the dependency allowlist check, TypeScript typecheck, and ESLint.
 - `make check`: lint plus test; the same checks CI runs.
 - `make fmt`: gofmt the Go code.
