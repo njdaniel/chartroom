@@ -1,0 +1,111 @@
+// A session's page: ask for a display name if this browser has none, then
+// connect and show the table.
+
+import { Connection, type KeyValue, type Status } from "./connection";
+import { h, nameKey, storage } from "./dom";
+import { TableView } from "./table";
+
+export async function showTable(root: HTMLElement, session: string): Promise<void> {
+  const store: KeyValue = storage() ?? memoryStore();
+  const displayName = store.getItem(nameKey) ?? (await askName(root));
+  store.setItem(nameKey, displayName);
+
+  const status = h("span", { class: "status" }, "Connecting…");
+  const who = h("span", { class: "who" });
+  const title = h("strong", {}, "");
+  const rulerButton = h("button", { type: "button", "aria-pressed": "false", title: "Measure (or hold Shift and drag)" }, "Ruler");
+  const fitButton = h("button", { type: "button", title: "Fit the map to the window" }, "Fit");
+  const stage = h("div", { class: "stage" });
+  const notice = h("div", { class: "notice", role: "status" });
+
+  root.replaceChildren(
+    h(
+      "div",
+      { class: "table-page" },
+      h("header", { class: "toolbar" }, h("a", { href: "/" }, "Lobby"), title, rulerButton, fitButton, who, status),
+      stage,
+      notice,
+    ),
+  );
+
+  const view = new TableView({
+    move: async (tokenId, to) => {
+      const outcome = await conn.send("token.move", { token_id: tokenId, x: to.x, y: to.y, rotation: to.rotation });
+      if (!outcome.ok) show(notice, outcome.rejected.message);
+      return outcome;
+    },
+  });
+  await view.mount(stage);
+
+  rulerButton.addEventListener("click", () => {
+    view.rulerMode = !view.rulerMode;
+    rulerButton.setAttribute("aria-pressed", String(view.rulerMode));
+  });
+  fitButton.addEventListener("click", () => view.recenter());
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const conn = new Connection({
+    url: `${proto}//${location.host}/ws`,
+    session,
+    displayName,
+    storage: store,
+    handlers: {
+      state: (st, seat) => {
+        document.title = `${st.name} · Chartroom`;
+        title.textContent = st.name;
+        who.textContent = `${seat.display_name} (${seat.role === "gm" ? "GM" : "player"})`;
+        view.setState(st);
+      },
+      status: (s) => {
+        status.textContent = statusText(s);
+        status.dataset["kind"] = s.kind;
+      },
+    },
+  });
+  conn.start();
+}
+
+function statusText(s: Status): string {
+  switch (s.kind) {
+    case "connecting":
+      return "Connecting…";
+    case "open":
+      return "Connected";
+    case "retrying":
+      return `Reconnecting in ${Math.ceil(s.inMs / 1000)} s…`;
+    case "failed":
+      return s.message;
+  }
+}
+
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function show(el: HTMLElement, message: string): void {
+  el.textContent = message;
+  el.classList.add("shown");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => el.classList.remove("shown"), 4000);
+}
+
+function askName(root: HTMLElement): Promise<string> {
+  return new Promise((resolve) => {
+    const input = h("input", { name: "display_name", required: "", maxlength: "40", "aria-label": "Your name", autofocus: "" });
+    const form = h("form", { class: "create" }, input, h("button", { type: "submit" }, "Join"));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (name) resolve(name);
+    });
+    root.replaceChildren(h("main", { class: "lobby" }, h("h1", {}, "What should the table call you?"), form));
+    input.focus();
+  });
+}
+
+function memoryStore(): KeyValue {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => void m.set(k, v),
+    removeItem: (k) => void m.delete(k),
+  };
+}
