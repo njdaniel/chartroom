@@ -1,9 +1,14 @@
-.PHONY: build test lint fmt dev web-install check
+.PHONY: build web-embed test lint fmt dev web-install check
 
-# Build the client, then the server binary into bin/.
-build: web-install
+# Build the client, then bin/chartroomd with the client embedded.
+build: web-embed
+	go build -tags chartroomweb -o bin/chartroomd ./cmd/chartroomd
+
+# Build the client and copy it where internal/webclient embeds it from.
+web-embed: web-install
 	cd web && npm run build
-	go build -o bin/chartroomd ./cmd/chartroomd
+	rm -rf internal/webclient/dist
+	cp -r web/dist internal/webclient/dist
 
 # Go and client unit tests.
 test: web-install

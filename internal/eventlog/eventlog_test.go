@@ -335,3 +335,27 @@ func seqs(events []Event) []int64 {
 	}
 	return out
 }
+
+func TestFirsts(t *testing.T) {
+	ctx := context.Background()
+	log := New(openDB(t), testRegistry())
+	times := []time.Time{
+		time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC),
+	}
+	for i, s := range []string{"s_late", "s_early"} {
+		log.now = func() time.Time { return times[i] }
+		for range 3 {
+			if _, err := log.Append(ctx, s, "", "", Draft{Type: "dice.rolled", Data: struct{}{}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got, err := log.Firsts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Session != "s_early" || got[1].Session != "s_late" || got[0].Seq != 1 || got[1].Seq != 1 {
+		t.Fatalf("Firsts = %+v, want seq 1 of s_early then s_late", got)
+	}
+}

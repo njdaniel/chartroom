@@ -152,8 +152,7 @@ func (l *Log) Append(ctx context.Context, session string, seat SeatID, cause str
 // first error, from the log or from fn.
 func (l *Log) Scan(ctx context.Context, session string, after int64, fn func(Event) error) error {
 	rows, err := l.db.QueryContext(ctx,
-		`SELECT seq, id, at, seat_id, cause, type, data_v, data
-		 FROM events WHERE session_id = ? AND seq > ? ORDER BY seq`,
+		`SELECT `+eventColumns+` FROM events WHERE session_id = ? AND seq > ? ORDER BY seq`,
 		session, after)
 	if err != nil {
 		return fmt.Errorf("eventlog: read %s: %w", session, err)
@@ -161,19 +160,9 @@ func (l *Log) Scan(ctx context.Context, session string, after int64, fn func(Eve
 	defer rows.Close()
 
 	for rows.Next() {
-		e := Event{V: EnvelopeVersion, Session: session}
-		var at, data string
-		var seat, cause sql.NullString
-		if err := rows.Scan(&e.Seq, &e.ID, &at, &seat, &cause, &e.Type, &e.DataV, &data); err != nil {
-			return fmt.Errorf("eventlog: read %s: %w", session, err)
-		}
-		if e.At, err = time.Parse(time.RFC3339Nano, at); err != nil {
-			return fmt.Errorf("eventlog: read %s seq %d: bad time: %w", session, e.Seq, err)
-		}
-		e.Seat, e.Cause, e.Data = SeatID(seat.String), cause.String, json.RawMessage(data)
-
-		if err := l.reg.upcast(&e); err != nil {
-			return fmt.Errorf("eventlog: read %s seq %d: %w", session, e.Seq, err)
+		e, err := l.scanEvent(rows)
+		if err != nil {
+			return err
 		}
 		if err := fn(e); err != nil {
 			return err
@@ -193,6 +182,52 @@ func (l *Log) Read(ctx context.Context, session string, after int64) ([]Event, e
 		return nil
 	})
 	return events, err
+}
+
+// Firsts returns the first event (seq 1) of every session, oldest first,
+// with data upcast to its type's latest version.
+func (l *Log) Firsts(ctx context.Context) ([]Event, error) {
+	rows, err := l.db.QueryContext(ctx,
+		`SELECT `+eventColumns+` FROM events WHERE seq = 1 ORDER BY at, session_id`)
+	if err != nil {
+		return nil, fmt.Errorf("eventlog: list sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		e, err := l.scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("eventlog: list sessions: %w", err)
+	}
+	return events, nil
+}
+
+// eventColumns is the column list scanEvent reads.
+const eventColumns = `session_id, seq, id, at, seat_id, cause, type, data_v, data`
+
+// scanEvent reads one row of eventColumns and upcasts its data.
+func (l *Log) scanEvent(rows *sql.Rows) (Event, error) {
+	e := Event{V: EnvelopeVersion}
+	var at, data string
+	var seat, cause sql.NullString
+	if err := rows.Scan(&e.Session, &e.Seq, &e.ID, &at, &seat, &cause, &e.Type, &e.DataV, &data); err != nil {
+		return Event{}, fmt.Errorf("eventlog: read: %w", err)
+	}
+	var err error
+	if e.At, err = time.Parse(time.RFC3339Nano, at); err != nil {
+		return Event{}, fmt.Errorf("eventlog: read %s seq %d: bad time: %w", e.Session, e.Seq, err)
+	}
+	e.Seat, e.Cause, e.Data = SeatID(seat.String), cause.String, json.RawMessage(data)
+	if err := l.reg.upcast(&e); err != nil {
+		return Event{}, fmt.Errorf("eventlog: read %s seq %d: %w", e.Session, e.Seq, err)
+	}
+	return e, nil
 }
 
 // newEventID returns "e_" and 128 random bits in hex. Ids are not game
