@@ -35,6 +35,16 @@ var migrations = [][]string{
 		`CREATE TRIGGER events_no_delete BEFORE DELETE ON events
 		BEGIN SELECT RAISE(ABORT, 'events are append-only'); END`,
 	},
+	// 2: snapshots, a disposable cache of folded state (ADR-002).
+	{
+		`CREATE TABLE snapshots (
+			session_id TEXT    NOT NULL,
+			seq        INTEGER NOT NULL,
+			state_v    INTEGER NOT NULL,
+			state      TEXT    NOT NULL,
+			PRIMARY KEY (session_id, seq)
+		) WITHOUT ROWID`,
+	},
 }
 
 // Open opens (creating if needed) the database at path, in WAL mode, and
