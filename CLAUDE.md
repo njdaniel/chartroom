@@ -45,4 +45,14 @@ These hold in every change. Breaking one is a bug, even if tests pass.
 
 ## Commands
 
-To be filled in when the repo layout is accepted (build, test, run the server, run the client in dev).
+Layout and dependencies are in `docs/adr/0001-repo-layout-and-dependencies.md`. Go 1.25+ and Node 24+.
+
+- `make dev`: runs `chartroomd` on `127.0.0.1:8080` and the Vite dev server on `:5173`, which proxies `/ws`, `/api`, `/assets`, and `/healthz` to it. Open http://localhost:5173.
+- `make build`: builds the client, then `bin/chartroomd`.
+- `make test`: `go test -race ./...` and the client's Vitest tests.
+- `make lint`: gofmt, `go vet`, the dependency allowlist check, TypeScript typecheck, and ESLint.
+- `make check`: lint plus test; the same checks CI runs.
+- `make fmt`: gofmt the Go code.
+- `go run ./cmd/chartroomd -addr 127.0.0.1:8080`: the server on its own.
+
+New dependencies go in `deps-allowlist.txt` in the same PR, with Nick's sign-off (ADR-000 item 2). `scripts/check-deps.sh` enforces it in CI.
