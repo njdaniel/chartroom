@@ -1,4 +1,4 @@
-.PHONY: build web-embed gen test lint fmt dev web-install check
+.PHONY: build web-embed gen test e2e lint fmt dev web-install check
 
 # Build the client, then bin/chartroomd with the client embedded.
 build: web-embed
@@ -19,6 +19,11 @@ gen:
 test: web-install
 	go test -race ./...
 	cd web && npm test
+
+# The M0 gate: two browsers against a real chartroomd (e2e/). Needs
+# Playwright's Chromium once: cd web && npx playwright install chromium
+e2e: build
+	cd web && npm run e2e
 
 # Everything CI checks besides tests.
 lint: web-install
