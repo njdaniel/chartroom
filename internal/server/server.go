@@ -5,17 +5,21 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/njdaniel/chartroom/internal/eventlog"
+	"github.com/njdaniel/chartroom/internal/session"
 	"github.com/njdaniel/chartroom/internal/table"
 )
 
 // Config is what the server needs.
 type Config struct {
 	Log       *eventlog.Log
+	Sessions  *session.Manager
 	AssetsDir string // where uploaded images are stored, one file per sha256
 	Client    fs.FS  // the built browser client, or nil if none is embedded
 }
@@ -30,6 +34,7 @@ func New(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
+	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("GET /api/", http.NotFound) // unknown API paths are not the client
 	mux.HandleFunc("POST /api/assets", s.handleUpload)
 	mux.HandleFunc("GET /assets/{hash}", s.handleAsset)
@@ -69,6 +74,31 @@ func (s *server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		out = append(out, SessionSummary{ID: e.Session, Name: d.Name, Link: "/s/" + e.Session})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleCreateSession starts a session from {"name": "…"} and returns its
+// summary, with the link to share.
+func (s *server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, `send {"name": "…"}`, http.StatusBadRequest)
+		return
+	}
+	id, err := s.Sessions.Create(r.Context(), req.Name)
+	if errors.Is(err, session.ErrBadName) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		slog.Error("create session", "err", err)
+		http.Error(w, "could not create the session", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, SessionSummary{ID: id, Name: strings.TrimSpace(req.Name), Link: "/s/" + id})
 }
 
 // handleClient serves the browser client. Paths that are not a file in the

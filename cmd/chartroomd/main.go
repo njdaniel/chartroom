@@ -15,6 +15,7 @@ import (
 
 	"github.com/njdaniel/chartroom/internal/eventlog"
 	"github.com/njdaniel/chartroom/internal/server"
+	"github.com/njdaniel/chartroom/internal/session"
 	"github.com/njdaniel/chartroom/internal/store"
 	"github.com/njdaniel/chartroom/internal/table"
 	"github.com/njdaniel/chartroom/internal/webclient"
@@ -47,6 +48,17 @@ func run(addr, dataDir string) error {
 
 	reg := eventlog.NewRegistry()
 	table.Register(reg)
+	log := eventlog.New(db, reg)
+	sessions := session.NewManager(session.Config{
+		DB:  db,
+		Log: log,
+		AssetExists: func(hash string) bool {
+			_, err := os.Stat(filepath.Join(assetsDir, hash)) // hash is checked as 64 hex first
+			return err == nil
+		},
+	})
+	defer sessions.Close() // before db.Close: it writes a snapshot of each open session
+
 	client, ok := webclient.Files()
 	if !ok {
 		slog.Info("no browser client in this build; use `make build`, or `make dev` while developing")
@@ -55,7 +67,7 @@ func run(addr, dataDir string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(server.Config{Log: eventlog.New(db, reg), AssetsDir: assetsDir, Client: client}),
+		Handler:           server.New(server.Config{Log: log, Sessions: sessions, AssetsDir: assetsDir, Client: client}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
