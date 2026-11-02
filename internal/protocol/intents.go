@@ -2,9 +2,8 @@
 // (ADR-003). It is the single source of truth for the client's TypeScript
 // types, which cmd/schema-ts generates from it (#8).
 //
-// This file has the intents a client sends. The rest of the protocol (hello,
-// welcome, ack, rejected, event, presence) arrives with the WebSocket server
-// in #7.
+// intents.go has the intents a client sends; messages.go has every other
+// frame.
 package protocol
 
 import (
@@ -16,7 +15,8 @@ import (
 // Intent is a client's request to change the table. The server decides what,
 // if anything, happens: every intent gets exactly one ack or rejected.
 type Intent struct {
-	ID   string          `json:"id"` // chosen by the client, so it can match the reply
+	Type string          `json:"type"` // TypeIntent on the wire
+	ID   string          `json:"id"`   // chosen by the client, so it can match the reply
 	Kind string          `json:"kind"`
 	Data json.RawMessage `json:"data"`
 }

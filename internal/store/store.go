@@ -45,6 +45,16 @@ var migrations = [][]string{
 			PRIMARY KEY (session_id, seq)
 		) WITHOUT ROWID`,
 	},
+	// 3: seat tokens (ADR-003). Only a token's sha256 is stored, so reading
+	// the database does not let you take someone's seat. Not part of the
+	// log: a token is how a browser finds its seat, not game state.
+	{
+		`CREATE TABLE seat_tokens (
+			token_hash TEXT NOT NULL PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			seat_id    TEXT NOT NULL
+		) WITHOUT ROWID`,
+	},
 }
 
 // Open opens (creating if needed) the database at path, in WAL mode, and

@@ -54,7 +54,7 @@ func (f fixture) table(t *testing.T) (string, eventlog.SeatID) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seat, err := f.m.Join(ctx, id, "Nick")
+	seat, _, err := f.m.Join(ctx, id, "Nick")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,25 +119,47 @@ func TestJoinFirstSeatIsGM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gm, err := f.m.Join(ctx, id, "Nick")
+	gm, gmToken, err := f.m.Join(ctx, id, "Nick")
 	if err != nil {
 		t.Fatal(err)
 	}
-	player, err := f.m.Join(ctx, id, "Sam")
+	player, playerToken, err := f.m.Join(ctx, id, "Sam")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gm.Role != table.RoleGM || player.Role != table.RolePlayer || gm.ID == player.ID {
 		t.Fatalf("seats = %+v, %+v", gm, player)
 	}
+
+	// Each token leads back to its seat, and only in its own session.
+	for token, want := range map[string]eventlog.SeatID{gmToken: gm.ID, playerToken: player.ID} {
+		if got, err := f.m.SeatForToken(ctx, id, token); err != nil || got != want {
+			t.Errorf("SeatForToken = %q, %v; want %q", got, err, want)
+		}
+	}
+	other, _ := f.m.Create(ctx, "Other game")
+	for session, token := range map[string]string{other: gmToken, id: "not-a-token", "": gmToken} {
+		if _, err := f.m.SeatForToken(ctx, session, token); !errors.Is(err, ErrUnknownSeat) {
+			t.Errorf("SeatForToken(%q, %q) = %v, want ErrUnknownSeat", session, token, err)
+		}
+	}
+	if _, err := f.m.SeatForToken(ctx, id, ""); !errors.Is(err, ErrUnknownSeat) {
+		t.Errorf("empty token = %v", err)
+	}
+
+	// Only the token's hash is stored.
+	var stored int
+	if err := f.cfg.DB.QueryRow(`SELECT COUNT(*) FROM seat_tokens WHERE token_hash IN (?, ?) OR seat_id = ?`, gmToken, playerToken, gmToken).Scan(&stored); err != nil || stored != 0 {
+		t.Errorf("a seat token is stored in the clear (%d rows, %v)", stored, err)
+	}
 	events := f.events(t, id)
 	if len(events) != 3 || events[1].Seat != gm.ID || events[2].Seat != player.ID {
 		t.Fatalf("log = %+v", events)
 	}
-	if _, err := f.m.Join(ctx, id, ""); !errors.Is(err, ErrBadName) {
+	if _, _, err := f.m.Join(ctx, id, ""); !errors.Is(err, ErrBadName) {
 		t.Errorf("Join with no name = %v", err)
 	}
-	if _, err := f.m.Join(ctx, "s_nope", "Nick"); !errors.Is(err, ErrNoSession) {
+	if _, _, err := f.m.Join(ctx, "s_nope", "Nick"); !errors.Is(err, ErrNoSession) {
 		t.Errorf("Join unknown session = %v", err)
 	}
 }
@@ -318,11 +340,35 @@ func TestUnknownSession(t *testing.T) {
 	}
 }
 
-// recorder is a Subscriber that keeps every seq it is handed.
+// recorder is a Subscriber that keeps every seq and presence it is handed.
 type recorder struct {
-	mu   sync.Mutex
-	seqs []int64
-	stop int64 // unsubscribe after this seq, if non-zero
+	mu       sync.Mutex
+	seqs     []int64
+	presence [][]protocol.PresenceSeat
+	stop     int64 // unsubscribe after this seq, if non-zero
+}
+
+func (r *recorder) Presence(p []protocol.PresenceSeat) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.presence = append(r.presence, p)
+	return true
+}
+
+// online returns the online seats in the latest presence.
+func (r *recorder) online() []eventlog.SeatID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.presence) == 0 {
+		return nil
+	}
+	var on []eventlog.SeatID
+	for _, s := range r.presence[len(r.presence)-1] {
+		if s.Online {
+			on = append(on, s.ID)
+		}
+	}
+	return on
 }
 
 func (r *recorder) Deliver(e eventlog.Event, st *table.State) bool {
@@ -350,7 +396,7 @@ func TestOneOrderForEveryone(t *testing.T) {
 	id, gm := f.table(t)
 	seats := []eventlog.SeatID{gm}
 	for i := range 4 {
-		s, err := f.m.Join(ctx, id, fmt.Sprintf("Player %d", i))
+		s, _, err := f.m.Join(ctx, id, fmt.Sprintf("Player %d", i))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -366,7 +412,7 @@ func TestOneOrderForEveryone(t *testing.T) {
 	subs := make([]*recorder, 3)
 	for i := range subs {
 		subs[i] = &recorder{}
-		sub, err := f.m.Attach(ctx, id, subs[i], func(st *table.State) { start = st.Seq })
+		sub, err := f.m.Attach(ctx, id, "", subs[i], func(st *table.State) error { start = st.Seq; return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -422,7 +468,7 @@ func TestSubscriberCanUnsubscribe(t *testing.T) {
 	ctx := context.Background()
 	id, seat := f.table(t)
 	r := &recorder{stop: 4}
-	if _, err := f.m.Attach(ctx, id, r, nil); err != nil {
+	if _, err := f.m.Attach(ctx, id, "", r, nil); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 4 {
@@ -432,6 +478,77 @@ func TestSubscriberCanUnsubscribe(t *testing.T) {
 	}
 	if got := r.got(); !reflect.DeepEqual(got, []int64{3, 4}) {
 		t.Fatalf("subscriber saw %v, want [3 4] and then nothing", got)
+	}
+}
+
+func TestPresence(t *testing.T) {
+	f := newFixture(t, nil)
+	ctx := context.Background()
+	id, gm := f.table(t)
+	player, _, err := f.m.Join(ctx, id, "Sam")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	watcher := &recorder{}
+	if _, err := f.m.Attach(ctx, id, "", watcher, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(watcher.presence) != 0 {
+		t.Fatal("a seatless watcher changed presence")
+	}
+
+	gmSub, err := f.m.Attach(ctx, id, gm, &recorder{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := watcher.online(); !reflect.DeepEqual(got, []eventlog.SeatID{gm}) {
+		t.Fatalf("online = %v, want the GM", got)
+	}
+	// A second tab for the same seat is not news.
+	tab2, err := f.m.Attach(ctx, id, gm, &recorder{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playerSub, err := f.m.Attach(ctx, id, player.ID, &recorder{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(watcher.presence); n != 2 {
+		t.Fatalf("watcher got %d presence messages, want 2", n)
+	}
+	if got := watcher.online(); len(got) != 2 {
+		t.Fatalf("online = %v, want both seats", got)
+	}
+
+	gmSub.Detach()
+	if n := len(watcher.presence); n != 2 {
+		t.Fatal("closing one of two tabs sent presence")
+	}
+	tab2.Detach()
+	playerSub.Detach()
+	eventually(t, "both seats to go offline", func() bool { return len(watcher.online()) == 0 })
+	watcher.mu.Lock()
+	defer watcher.mu.Unlock()
+	last := watcher.presence[len(watcher.presence)-1]
+	if len(last) != 2 || last[0].DisplayName == "" {
+		t.Fatalf("presence lists %+v, want both seats with names", last)
+	}
+}
+
+func TestAttachInitCanRefuse(t *testing.T) {
+	f := newFixture(t, nil)
+	id, seat := f.table(t)
+	refused := errors.New("no such seat")
+	r := &recorder{}
+	if _, err := f.m.Attach(context.Background(), id, seat, r, func(*table.State) error { return refused }); !errors.Is(err, refused) {
+		t.Fatalf("Attach = %v, want the init error", err)
+	}
+	if _, err := f.m.Submit(context.Background(), id, seat, intent("i_1", protocol.KindDiceRoll, protocol.DiceRoll{Expr: "1d6"})); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.got()) != 0 || len(r.presence) != 0 {
+		t.Fatal("a refused subscriber was still attached")
 	}
 }
 
@@ -496,7 +613,7 @@ func TestIdleSessionsUnloadAndReload(t *testing.T) {
 func TestWatchedSessionsStayLoaded(t *testing.T) {
 	f := newFixture(t, func(c *Config) { c.IdleTimeout = 10 * time.Millisecond })
 	id, _ := f.table(t)
-	sub, err := f.m.Attach(context.Background(), id, &recorder{}, nil)
+	sub, err := f.m.Attach(context.Background(), id, "", &recorder{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +630,7 @@ func TestClose(t *testing.T) {
 	f := newFixture(t, nil)
 	ctx := context.Background()
 	id, seat := f.table(t)
-	sub, err := f.m.Attach(ctx, id, &recorder{}, nil)
+	sub, err := f.m.Attach(ctx, id, "", &recorder{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

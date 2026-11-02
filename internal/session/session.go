@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +67,10 @@ type Subscriber interface {
 	// Events are not filtered: the subscriber must pass them through the
 	// visibility filter before they reach a seat (invariant 4).
 	Deliver(e eventlog.Event, st *table.State) bool
+	// Presence is called on the session loop whenever a seat's subscriber
+	// count goes to or from zero, with every seat in the session. The same
+	// rules as Deliver apply.
+	Presence(seats []protocol.PresenceSeat) bool
 }
 
 // Manager owns the open sessions.
@@ -111,33 +117,6 @@ func (m *Manager) Create(ctx context.Context, name string) (string, error) {
 	return id, nil
 }
 
-// Join adds a new seat to session. The first seat is the GM; later seats are
-// players.
-func (m *Manager) Join(ctx context.Context, session, displayName string) (table.Seat, error) {
-	displayName = strings.TrimSpace(displayName)
-	if err := text("display name", displayName, 1, MaxSeatName); err != nil {
-		return table.Seat{}, fmt.Errorf("%w: %s", ErrBadName, err.(*Rejection).Message)
-	}
-	var seat table.Seat
-	var err error
-	if derr := m.do(ctx, session, func(l *loop) {
-		role := table.RolePlayer
-		if len(l.st.Seats) == 0 {
-			role = table.RoleGM
-		}
-		id := eventlog.SeatID(newID("seat_"))
-		if _, err = l.commit(ctx, id, "", eventlog.Draft{
-			Type: table.TypeSeatJoined,
-			Data: table.SeatJoined{SeatID: id, DisplayName: displayName, Role: role},
-		}); err == nil {
-			seat = l.st.Seats[id]
-		}
-	}); derr != nil {
-		return table.Seat{}, derr
-	}
-	return seat, err
-}
-
 // Submit runs intent in from seat through session's loop. It returns the
 // seqs of the events it appended, after every subscriber has been handed
 // them. A *Rejection error means the intent was refused and nothing was
@@ -161,22 +140,34 @@ type Subscription struct {
 	Detach func()
 }
 
-// Attach subscribes sub to session's events. init is called first, on the
-// loop, with the current state: sub then gets every event after st.Seq and
-// none before. init must not keep st or call the Manager.
-func (m *Manager) Attach(ctx context.Context, session string, sub Subscriber, init func(st *table.State)) (Subscription, error) {
+// Attach subscribes sub to session's events on behalf of seat ("" for a
+// watcher with no seat). init is called first, on the loop, with the current
+// state: sub then gets every event after st.Seq and none before. init must
+// not keep st or call the Manager; returning an error from it cancels the
+// Attach with that error.
+//
+// While seat has at least one subscriber it counts as online, and every
+// subscriber is sent presence when that changes.
+func (m *Manager) Attach(ctx context.Context, session string, seat eventlog.SeatID, sub Subscriber, init func(st *table.State) error) (Subscription, error) {
 	var l *loop
 	var key uint64
+	var ierr error
 	if err := m.do(ctx, session, func(lp *loop) {
 		if init != nil {
-			init(lp.st)
+			if ierr = init(lp.st); ierr != nil {
+				return
+			}
 		}
 		lp.nextSub++
 		key = lp.nextSub
-		lp.subs[key] = sub
+		lp.subs[key] = subscriber{seat: seat, Subscriber: sub}
+		lp.online(seat, +1)
 		l = lp
 	}); err != nil {
 		return Subscription{}, err
+	}
+	if ierr != nil {
+		return Subscription{}, ierr
 	}
 	var once sync.Once
 	return Subscription{
@@ -184,7 +175,7 @@ func (m *Manager) Attach(ctx context.Context, session string, sub Subscriber, in
 		Detach: func() {
 			once.Do(func() {
 				select {
-				case l.reqs <- func(l *loop) { delete(l.subs, key) }:
+				case l.reqs <- func(l *loop) { l.remove(key) }:
 				case <-l.done:
 				}
 			})
@@ -258,7 +249,7 @@ func (m *Manager) get(ctx context.Context, session string) (*loop, error) {
 	}
 	l := &loop{
 		m: m, id: session, st: st, snapped: st.Seq,
-		reqs: make(chan func(*loop)), done: make(chan struct{}), subs: map[uint64]Subscriber{},
+		reqs: make(chan func(*loop)), done: make(chan struct{}), subs: map[uint64]subscriber{}, seats: map[eventlog.SeatID]int{},
 	}
 	m.open[session] = l
 	m.wg.Add(1)
@@ -293,8 +284,9 @@ type loop struct {
 
 	reqs    chan func(*loop) // unbuffered: a send succeeds only if the loop takes it
 	done    chan struct{}
-	subs    map[uint64]Subscriber
+	subs    map[uint64]subscriber
 	nextSub uint64
+	seats   map[eventlog.SeatID]int // subscribers per seat; a seat with any is online
 	failed  bool
 }
 
@@ -374,7 +366,7 @@ func (l *loop) commit(ctx context.Context, seat eventlog.SeatID, cause string, d
 		}
 		for key, sub := range l.subs {
 			if !sub.Deliver(e, l.st) {
-				delete(l.subs, key)
+				l.remove(key)
 			}
 		}
 	}
@@ -382,6 +374,54 @@ func (l *loop) commit(ctx context.Context, seat eventlog.SeatID, cause string, d
 		l.snapshot()
 	}
 	return events, nil
+}
+
+type subscriber struct {
+	seat eventlog.SeatID
+	Subscriber
+}
+
+// remove unsubscribes key, if it is still subscribed.
+func (l *loop) remove(key uint64) {
+	sub, ok := l.subs[key]
+	if !ok {
+		return
+	}
+	delete(l.subs, key)
+	l.online(sub.seat, -1)
+}
+
+// online changes seat's subscriber count by delta and sends presence to
+// everyone if the seat came online or went offline.
+func (l *loop) online(seat eventlog.SeatID, delta int) {
+	if seat == "" {
+		return
+	}
+	before := l.seats[seat] > 0
+	l.seats[seat] += delta
+	if l.seats[seat] <= 0 {
+		delete(l.seats, seat)
+	}
+	if before == (l.seats[seat] > 0) {
+		return
+	}
+	p := l.presence()
+	for key, sub := range l.subs {
+		if !sub.Presence(p) {
+			l.remove(key) // recursion ends: each call removes a subscriber
+		}
+	}
+}
+
+// presence lists every seat in the session, ordered by id, with whether it
+// is online. A fresh slice each time, since subscribers may keep it.
+func (l *loop) presence() []protocol.PresenceSeat {
+	ids := slices.Sorted(maps.Keys(l.st.Seats))
+	p := make([]protocol.PresenceSeat, len(ids))
+	for i, id := range ids {
+		p[i] = protocol.PresenceSeat{ID: id, DisplayName: l.st.Seats[id].DisplayName, Online: l.seats[id] > 0}
+	}
+	return p
 }
 
 // snapshot saves the state if it has changed since the last one. A failed
