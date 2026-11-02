@@ -1,6 +1,6 @@
 # ADR-003: Client–server protocol for M0
 
-- **Status:** Proposed
+- **Status:** Accepted (Nick, on PR #1, 2026-11-02)
 - **Date:** 2026-11-02
 - **Decider:** Nick (Tier-H: new ADR; touches seat permissions and visibility filtering)
 
@@ -89,5 +89,5 @@ Dice expressions in M0 are sums of `NdM` terms and integer modifiers (`1d20+5`, 
 
 - Every outgoing event and state goes through one filter function, so fog of war (M3) and AI seats (M4) add rules there rather than new code paths.
 - Hidden events leave gaps in a seat's `seq`, which shows that *something* happened. That's acceptable for M0. M3 decides whether fog needs more than that.
-- Anyone on the tailnet with a session link can join it, and the first seat becomes GM. That matches v1's trust model (a private group) and is listed as a question for Nick.
+- Anyone on the tailnet with a session link can join it, and the first seat becomes GM. That matches v1's trust model (a private group). Nick accepted this for M0, with no GM-only actions.
 - M4's MCP endpoint will be another client of the same session loop and filter, not a second path into state.

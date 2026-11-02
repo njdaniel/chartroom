@@ -139,7 +139,7 @@ Dice roll box and a shared dice log (who rolled, expression, each die, total), m
 **Acceptance criteria**
 - Every roll shows its expression, each die's result, the modifier, and the total, in the same order for all players.
 - A rejected intent shows its message to the person who sent it.
-- Any seat can upload a map image and load it, and everyone sees it. M0 has no role limits (see the PR's questions).
+- Any seat can upload a map image and load it, and everyone sees it. M0 has no role limits (decided on PR #1).
 
 **Depends on:** 9.
 

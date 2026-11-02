@@ -82,7 +82,7 @@ Dice and state:
 
 - **Server-side dice.** Each session has a seeded random source. Scripts request rolls through the engine and cannot make their own randomness.
 - **Every roll is logged** with its inputs, modifiers, and result, visible to all players.
-- **Event sourcing.** Game state is a fold over the action log, which gives undo, replay, spectating, and headless simulation from the same code.
+- **Event sourcing.** Game state is a fold over the event log, which records accepted outcomes, dice results included, rather than the requests that caused them ([ADR-002](adr/0002-event-log-schema.md)). This gives undo, replay, spectating, and headless simulation from the same code.
 
 ## AI and governance tiers
 
@@ -152,4 +152,4 @@ Little Wars comes before 5e on purpose: it is simple enough to prove the engine,
 - [ ] First wargame module: measured miniatures (Napoleonic or ancients) or hex-and-counter WW2? Needed by M3.
 - [ ] Which SRD first: 5.1 (2014 rules) or 5.2 (2024 rules)? Needed by M2.
 - [ ] Relationship to Conch: share the floor and approval primitives as a library, or run the table as a Conch channel mode?
-- [ ] How map and token images are uploaded and stored.
+- [x] How map and token images are uploaded and stored: uploaded over HTTP and stored by content hash in the data directory ([ADR-003](adr/0003-client-server-protocol.md)).

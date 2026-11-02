@@ -1,6 +1,6 @@
 # ADR-002: Event log schema, v1
 
-- **Status:** Proposed
+- **Status:** Accepted (Nick, on PR #1, 2026-11-02)
 - **Date:** 2026-11-02
 - **Decider:** Nick (Tier-H: new ADR, event log schema)
 
@@ -117,7 +117,7 @@ Things that are **not** events: who is connected right now, cursor positions, an
 ### Dice and the log
 
 - The seed is created with `crypto/rand` and recorded in `session.created`. The fold keeps the session's ChaCha8 state, so a restarted server continues the same sequence of rolls. Snapshots store the marshalled generator state.
-- `dice_seed` is game state but secret: anyone holding it could predict every future roll. The visibility filter (ADR-003) removes it for every seat.
+- `dice_seed` is game state but secret: anyone holding it could predict every future roll. The visibility filter (ADR-003) removes it for every seat. Revealing it after a session ends, so players can check the rolls, is deferred until sessions have an end.
 
 ## Alternatives considered
 

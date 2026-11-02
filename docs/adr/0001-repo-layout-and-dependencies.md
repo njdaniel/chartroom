@@ -1,6 +1,6 @@
 # ADR-001: Repo layout and initial dependencies
 
-- **Status:** Proposed
+- **Status:** Accepted (Nick, on PR #1, 2026-11-02)
 - **Date:** 2026-11-02
 - **Decider:** Nick (Tier-H: new ADR, new dependencies)
 
@@ -40,6 +40,7 @@ Makefile             build, test, lint, dev, e2e
 - Everything lives under `internal/` until a second module needs it. The simulator (M5) runs in-process, so it doesn't force a public `pkg/`.
 - The Starlark sandbox gets `internal/rules/` in M1. It isn't created in M0.
 - The built client is embedded into `chartroomd` with `go:embed`, so v1 stays one binary.
+- `go.mod` declares `go 1.25.0`, matching Conch; older local toolchains download it automatically.
 - `go.mod` uses `ignore ./web` (as Conch does) so Go never reads `node_modules`.
 - CI checks that every direct dependency in `go.mod` and `web/package.json` appears in `deps-allowlist.txt`. Adding a line there needs Nick's sign-off in the same PR.
 
