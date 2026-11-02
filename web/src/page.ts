@@ -3,6 +3,8 @@
 
 import { Connection, type KeyValue, type Status } from "./connection";
 import { h, nameKey, storage } from "./dom";
+import { Panel } from "./panel";
+import type { IntentData } from "./protocol";
 import { TableView } from "./table";
 
 export async function showTable(root: HTMLElement, session: string): Promise<void> {
@@ -17,6 +19,7 @@ export async function showTable(root: HTMLElement, session: string): Promise<voi
   const fitButton = h("button", { type: "button", title: "Fit the map to the window" }, "Fit");
   const stage = h("div", { class: "stage" });
   const notice = h("div", { class: "notice", role: "status" });
+  const sidebar = h("aside", { class: "panel" });
 
   root.replaceChildren(
     h(
@@ -24,18 +27,34 @@ export async function showTable(root: HTMLElement, session: string): Promise<voi
       { class: "table-page" },
       h("header", { class: "toolbar" }, h("a", { href: "/" }, "Lobby"), title, rulerButton, fitButton, who, status),
       stage,
+      sidebar,
       notice,
     ),
   );
 
+  // Every intent goes through here, so a rejection always reaches the
+  // person who sent it.
+  const act = async <K extends keyof IntentData>(kind: K, data: IntentData[K]) => {
+    const outcome = await conn.send(kind, data);
+    if (!outcome.ok) show(notice, outcome.rejected.message);
+    return outcome;
+  };
+
   const view = new TableView({
-    move: async (tokenId, to) => {
-      const outcome = await conn.send("token.move", { token_id: tokenId, x: to.x, y: to.y, rotation: to.rotation });
-      if (!outcome.ok) show(notice, outcome.rejected.message);
-      return outcome;
+    move: (tokenId, to) => act("token.move", { token_id: tokenId, x: to.x, y: to.y, rotation: to.rotation }),
+    select: (tokenId) => {
+      view.setSelected(tokenId);
+      panel.select(tokenId);
     },
   });
+  const panel = new Panel({ act, notify: (m) => show(notice, m), centre: () => view.viewCentre() });
+  sidebar.replaceWith(panel.el);
   await view.mount(stage);
+
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
+    if (!typing && (e.key === "Delete" || e.key === "Backspace")) panel.removeSelected();
+  });
 
   rulerButton.addEventListener("click", () => {
     view.rulerMode = !view.rulerMode;
@@ -55,7 +74,9 @@ export async function showTable(root: HTMLElement, session: string): Promise<voi
         title.textContent = st.name;
         who.textContent = `${seat.display_name} (${seat.role === "gm" ? "GM" : "player"})`;
         view.setState(st);
+        panel.setState(st);
       },
+      presence: (seats) => panel.setPresence(seats),
       status: (s) => {
         status.textContent = statusText(s);
         status.dataset["kind"] = s.kind;

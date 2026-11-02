@@ -11,6 +11,8 @@ import { distanceIn, formatInches } from "./ruler";
 export interface TableOptions {
   /** Asks the server to move a token. The ghost stays until it settles. */
   move(tokenId: string, to: Pose): Promise<Outcome>;
+  /** A token was clicked (not dragged), or the background was (null). */
+  select(tokenId: string | null): void;
 }
 
 const background = 0x1d2023;
@@ -35,10 +37,11 @@ export class TableView {
   private mapAsset = "";
   private textures = new Map<string, Promise<Texture>>();
   private labels = new Map<string, Text>();
+  private selected: string | null = null;
 
   private drag:
     | { kind: "token"; token: Token; offset: Point; ghost: Container }
-    | { kind: "pan"; last: Point }
+    | { kind: "pan"; last: Point; moved: boolean }
     | { kind: "ruler"; from: Point }
     | null = null;
   rulerMode = false;
@@ -90,6 +93,17 @@ export class TableView {
   }
 
   /** Fits the camera to the map, or to the tokens if there is no map. */
+  /** Highlights a token, or none. */
+  setSelected(tokenId: string | null): void {
+    this.selected = tokenId;
+    if (this.state) this.drawTokens(this.state.tokens);
+  }
+
+  /** The world point at the middle of the view, where new tokens go. */
+  viewCentre(): Point {
+    return toWorld(this.camera, { x: this.app.screen.width / 2, y: this.app.screen.height / 2 });
+  }
+
   recenter(): void {
     const s = this.state;
     if (s?.map) this.setCamera(fit(s.map.width_in, s.map.height_in, this.app.screen));
@@ -139,6 +153,11 @@ export class TableView {
     }
     for (const t of Object.values(tokens)) {
       const piece = this.piece(t, 1);
+      if (t.id === this.selected) {
+        const ring = new Graphics().circle(0, 0, (t.size_in / 2 + 0.12) * detail).stroke({ width: 0.08 * detail, color: rulerColor });
+        ring.scale.set(1 / detail);
+        piece.addChildAt(ring, 0);
+      }
       piece.eventMode = "static";
       piece.cursor = "grab";
       piece.on("pointerdown", (e) => {
@@ -220,7 +239,7 @@ export class TableView {
       this.drawRuler(p, p, e.global);
     } else {
       this.clearRuler();
-      this.drag = { kind: "pan", last: { x: e.global.x, y: e.global.y } };
+      this.drag = { kind: "pan", last: { x: e.global.x, y: e.global.y }, moved: false };
     }
   }
 
@@ -234,6 +253,7 @@ export class TableView {
         break;
       }
       case "pan":
+        d.moved = true;
         this.setCamera(pan(this.camera, e.global.x - d.last.x, e.global.y - d.last.y));
         d.last = { x: e.global.x, y: e.global.y };
         break;
@@ -246,10 +266,12 @@ export class TableView {
   private pointerUp(): void {
     const d = this.drag;
     this.drag = null;
+    if (d?.kind === "pan" && !d.moved) this.opts.select(null);
     if (d?.kind !== "token") return;
     const to = { x: d.ghost.x, y: d.ghost.y, rotation: d.token.pose.rotation };
     if (to.x === d.token.pose.x && to.y === d.token.pose.y) {
       d.ghost.destroy({ children: true });
+      this.opts.select(d.token.id); // a click, not a drag
       return;
     }
     // The ghost stays where it was dropped until the server answers; the
