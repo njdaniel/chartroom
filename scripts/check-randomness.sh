@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 crypto_allowed=(
   internal/dice/dice.go          # the session's dice seed
   internal/eventlog/eventlog.go  # event ids
+  internal/session/ids.go        # session, seat, and token ids
 )
 
 status=0

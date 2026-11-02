@@ -17,6 +17,7 @@ import (
 	"testing/fstest"
 
 	"github.com/njdaniel/chartroom/internal/eventlog"
+	"github.com/njdaniel/chartroom/internal/session"
 	"github.com/njdaniel/chartroom/internal/store"
 	"github.com/njdaniel/chartroom/internal/table"
 )
@@ -43,7 +44,9 @@ func newFixture(t *testing.T, client fs.FS) fixture {
 	reg := eventlog.NewRegistry()
 	table.Register(reg)
 	log := eventlog.New(db, reg)
-	srv := httptest.NewServer(New(Config{Log: log, AssetsDir: assets, Client: client}))
+	sessions := session.NewManager(session.Config{DB: db, Log: log})
+	t.Cleanup(sessions.Close)
+	srv := httptest.NewServer(New(Config{Log: log, Sessions: sessions, AssetsDir: assets, Client: client}))
 	t.Cleanup(srv.Close)
 	return fixture{url: srv.URL, log: log, assets: assets}
 }
@@ -211,6 +214,50 @@ func TestListSessionsHidesTheSeed(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Name != "Friday game" || got[0].Link != "/s/s_friday_game" {
 		t.Fatalf("sessions = %+v", got)
+	}
+}
+
+func TestCreateSession(t *testing.T) {
+	f := newFixture(t, nil)
+	post := func(body string) (*http.Response, string) {
+		t.Helper()
+		resp, err := http.Post(f.url+"/api/sessions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp, string(b)
+	}
+
+	resp, body := post(`{"name": " Friday game "}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/sessions = %d %s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "seed") {
+		t.Fatalf("create response leaks the seed: %s", body)
+	}
+	var created SessionSummary
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "Friday game" || created.Link != "/s/"+created.ID || !strings.HasPrefix(created.ID, "s_") {
+		t.Fatalf("created %+v", created)
+	}
+
+	_, list := get(t, f.url+"/api/sessions")
+	var got []SessionSummary
+	if err := json.Unmarshal([]byte(list), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != created {
+		t.Fatalf("lobby = %+v, want just %+v", got, created)
+	}
+
+	for _, bad := range []string{`{"name": ""}`, `{"name": "   "}`, `{}`, `not json`, `{"name": "x", "seed": "00"}`} {
+		if resp, body := post(bad); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("POST %s = %d %s, want 400", bad, resp.StatusCode, body)
+		}
 	}
 }
 
