@@ -1,0 +1,17 @@
+# Direct dependencies approved by Nick (ADR-000, item 2).
+# One Go module path or npm package name per line; comments and blank lines are ignored.
+# Adding a line here needs Nick's sign-off in the same PR.
+#
+# Go modules, approved in ADR-001 (PR #1, 2026-11-02).
+modernc.org/sqlite
+github.com/coder/websocket
+# go.starlark.net is chosen in ADR-001 but needs sign-off again when M1 adds it.
+#
+# npm packages (web/), approved in ADR-001 (PR #1, 2026-11-02).
+pixi.js
+typescript
+vite
+vitest
+@playwright/test
+eslint
+typescript-eslint
