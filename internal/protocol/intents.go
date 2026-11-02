@@ -78,3 +78,13 @@ const (
 	CodeNoAsset     = "unknown_asset" // no uploaded image has that hash
 	CodeBadDice     = "bad_dice_expr" // the dice expression does not parse or is out of range
 )
+
+// IntentData maps each intent kind to the type of its data. cmd/schema-ts
+// reads it to type intents in the client.
+var IntentData = map[string]any{
+	KindMapLoad:     MapLoad{},
+	KindTokenPlace:  TokenPlace{},
+	KindTokenMove:   TokenMove{},
+	KindTokenRemove: TokenRemove{},
+	KindDiceRoll:    DiceRoll{},
+}

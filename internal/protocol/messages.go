@@ -72,7 +72,7 @@ type Rejected struct {
 // Event carries one event, already filtered for the seat receiving it.
 type Event struct {
 	Type  string         `json:"type"`
-	Event eventlog.Event `json:"event"`
+	Event eventlog.Event `json:"event" ts:"KnownEvent"` // its type is a key of EventData
 }
 
 // Presence lists every seat in the session and whether it is connected. It
@@ -104,4 +104,36 @@ const (
 	ErrUnknownSeat      = "unknown_seat"      // the seat token is not for a seat in this session
 	ErrBadMessage       = "bad_message"       // a frame that is not JSON with a known type
 	ErrShuttingDown     = "shutting_down"     // the server is stopping; reconnect later
+)
+
+// EventData maps each event type a client can receive to the type of its
+// data. cmd/schema-ts reads it to type events in the client.
+//
+// session.created is left out: it is always seq 1, so it is in the state of
+// every welcome and never sent as an event. (Its data also holds the dice
+// seed, which the visibility filter removes.)
+var EventData = map[string]any{
+	table.TypeSeatJoined:   table.SeatJoined{},
+	table.TypeMapLoaded:    table.MapLoaded{},
+	table.TypeTokenPlaced:  table.TokenPlaced{},
+	table.TypeTokenMoved:   table.TokenMoved{},
+	table.TypeTokenRemoved: table.TokenRemoved{},
+	table.TypeDiceRolled:   table.DiceRolled{},
+}
+
+// ClientMessages and ServerMessages list every frame type by its "type"
+// value. cmd/schema-ts reads them to build the client's message unions.
+var (
+	ClientMessages = map[string]any{
+		TypeHello:  Hello{},
+		TypeIntent: Intent{},
+	}
+	ServerMessages = map[string]any{
+		TypeWelcome:  Welcome{},
+		TypeAck:      Ack{},
+		TypeRejected: Rejected{},
+		TypeEvent:    Event{},
+		TypePresence: Presence{},
+		TypeError:    Error{},
+	}
 )

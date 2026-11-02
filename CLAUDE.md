@@ -49,6 +49,7 @@ Layout and dependencies are in `docs/adr/0001-repo-layout-and-dependencies.md`. 
 
 - `make dev`: runs `chartroomd` on `127.0.0.1:8080` and the Vite dev server on `:5173`, which proxies `/ws`, `/api`, `/assets`, and `/healthz` to it. Open http://localhost:5173.
 - `make build`: builds the client and embeds it in `bin/chartroomd` (build tag `chartroomweb`). A plain `go build` has no client, so Go work never needs Node.
+- `make gen`: regenerates `web/src/protocol.gen.ts` from `internal/protocol`. Run it after changing any wire type; a test fails if the file is stale. Never edit the generated file.
 - `make test`: `go test -race ./...` and the client's Vitest tests.
 - `make lint`: gofmt, `go vet`, the dependency allowlist check, TypeScript typecheck, and ESLint.
 - `make check`: lint plus test; the same checks CI runs.

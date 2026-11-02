@@ -308,12 +308,12 @@ func (l *loop) run() {
 				idle.Reset(l.m.cfg.IdleTimeout)
 				continue
 			}
+			l.snapshot() // first, so a reload right after starts from it
 			l.m.unload(l)
-			l.snapshot()
 			return
 		case <-l.m.closing:
+			l.snapshot() // first, so a reload right after starts from it
 			l.m.unload(l)
-			l.snapshot()
 			return
 		}
 	}

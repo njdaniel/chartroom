@@ -1,4 +1,4 @@
-.PHONY: build web-embed test lint fmt dev web-install check
+.PHONY: build web-embed gen test lint fmt dev web-install check
 
 # Build the client, then bin/chartroomd with the client embedded.
 build: web-embed
@@ -9,6 +9,11 @@ web-embed: web-install
 	cd web && npm run build
 	rm -rf internal/webclient/dist
 	cp -r web/dist internal/webclient/dist
+
+# Regenerate the client's protocol types from internal/protocol. A Go test
+# (cmd/schema-ts) fails if you forget.
+gen:
+	go run ./cmd/schema-ts
 
 # Go and client unit tests.
 test: web-install
