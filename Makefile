@@ -21,6 +21,7 @@ lint: web-install
 	  if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 	go vet ./...
 	scripts/check-deps.sh
+	scripts/check-randomness.sh
 	cd web && npm run typecheck && npm run lint
 
 fmt:
