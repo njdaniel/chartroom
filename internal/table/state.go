@@ -15,7 +15,9 @@ import (
 
 // StateVersion is the version of State's shape and of the fold that builds
 // it. Bump it whenever either changes, so stale snapshots are ignored.
-const StateVersion = 1
+//
+// Version 2 added DiceRolls.
+const StateVersion = 2
 
 // ErrInconsistent means an event cannot apply to the current state: the log
 // is out of order, or names a seat or token that does not exist.
@@ -47,14 +49,18 @@ type Roll struct {
 
 // State is a session's table, as of event Seq.
 type State struct {
-	Session  string                   `json:"session"`
-	Seq      int64                    `json:"seq"`
-	Name     string                   `json:"name"`
-	DiceSeed string                   `json:"dice_seed"` // secret; the visibility filter removes it
-	Seats    map[eventlog.SeatID]Seat `json:"seats"`
-	Map      *MapLoaded               `json:"map"`
-	Tokens   map[string]Token         `json:"tokens"`
-	Rolls    []Roll                   `json:"rolls"`
+	Session  string `json:"session"`
+	Seq      int64  `json:"seq"`
+	Name     string `json:"name"`
+	DiceSeed string `json:"dice_seed"` // secret; the visibility filter removes it
+	// DiceRolls counts dice.rolled events so far. It is the index the next
+	// roll passes to dice.Roll, which is how a restarted server continues
+	// the same sequence of rolls.
+	DiceRolls int64                    `json:"dice_rolls"`
+	Seats     map[eventlog.SeatID]Seat `json:"seats"`
+	Map       *MapLoaded               `json:"map"`
+	Tokens    map[string]Token         `json:"tokens"`
+	Rolls     []Roll                   `json:"rolls"`
 }
 
 // New returns the empty state of session, before its first event.
@@ -140,6 +146,7 @@ func (s *State) Apply(e eventlog.Event) error {
 	case TypeDiceRolled:
 		err = apply(e, func(d DiceRolled) error {
 			s.Rolls = append(s.Rolls, Roll{Seq: e.Seq, Seat: e.Seat, DiceRolled: d})
+			s.DiceRolls++
 			return nil
 		})
 	default:

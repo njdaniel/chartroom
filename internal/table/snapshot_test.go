@@ -170,8 +170,9 @@ func TestLoadIgnoresUnusableSnapshots(t *testing.T) {
 
 	cases := map[string]string{
 		"other state_v": `INSERT INTO snapshots VALUES ('s_1', 50, 999, '{"session":"s_1","seq":50,"name":"stale"}')`,
-		"corrupt JSON":  `INSERT INTO snapshots VALUES ('s_1', 50, 1, '{not json')`,
-		"seq mismatch":  `INSERT INTO snapshots VALUES ('s_1', 50, 1, '{"session":"s_1","seq":49,"name":"wrong"}')`,
+		"corrupt JSON":  fmt.Sprintf(`INSERT INTO snapshots VALUES ('s_1', 50, %d, '{not json')`, StateVersion),
+		"seq mismatch":  fmt.Sprintf(`INSERT INTO snapshots VALUES ('s_1', 50, %d, '{"session":"s_1","seq":49,"name":"wrong"}')`, StateVersion),
+		"older state_v": `INSERT INTO snapshots VALUES ('s_1', 50, 1, '{"session":"s_1","seq":50,"name":"v1"}')`,
 	}
 	for name, insert := range cases {
 		t.Run(name, func(t *testing.T) {
