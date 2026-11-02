@@ -29,6 +29,10 @@ jobs:
         run: scripts/check-deps.sh
       - name: Game randomness only from internal/dice
         run: scripts/check-randomness.sh
+      - name: Build the binary with the client embedded
+        run: make build
+      - name: Embedded client test
+        run: go test -tags chartroomweb ./internal/webclient
 
   web:
     runs-on: ubuntu-latest

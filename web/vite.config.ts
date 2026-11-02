@@ -5,6 +5,11 @@ import { defineConfig } from "vitest/config";
 const server = "http://127.0.0.1:8080";
 
 export default defineConfig({
+  build: {
+    // chartroomd serves uploaded images at /assets/, so built files go
+    // under /static/ instead of Vite's default.
+    assetsDir: "static",
+  },
   server: {
     proxy: {
       "/healthz": server,
